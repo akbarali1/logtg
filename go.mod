@@ -1,4 +1,4 @@
-module github.com/akbarali/logtg
+module github.com/akbarali1/logtg
 
 go 1.24.3
 
