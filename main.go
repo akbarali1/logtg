@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,15 +40,13 @@ func IsRunningInDocker() bool {
 }
 
 func init() {
-	// Setup logging
-	// Load environment variables
+	// Load environment variables from current working directory
+	envFile := ".env"
 	if !IsRunningInDocker() {
-		_, filename, _, _ := runtime.Caller(0)
-		envFile := filepath.Dir(filename) + "/.env"
+		// Just use ".env" in the current working directory
 		if err := godotenv.Load(envFile); err != nil {
-			println(envFile)
-			println(err.Error())
-			log.Fatal("Error loading .env file")
+			log.Printf("Warning: cannot load .env file from %s: %v\n", envFile, err)
+			// You may decide not to fatal here
 		}
 	}
 }
