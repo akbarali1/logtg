@@ -1,31 +1,32 @@
 # Telegram Logger for Go
 
-A high-performance, production-ready logging library that sends logs to Telegram groups with topic support. Perfect for
-monitoring applications, debugging, and receiving real-time notifications.
+A powerful and flexible Telegram logging library for Go applications. Send all your logs directly to Telegram channels
+with support for different log levels, topic-based routing, and `io.MultiWriter` compatibility.
 
-## Features
+## 🌟 Key Features
 
-- 🚀 **High Performance** - Optimized with connection pooling, buffering, and async operations
-- 📱 **Telegram Integration** - Send logs directly to Telegram groups and topics
-- 🎯 **Multi-Level Logging** - Support for Info, Warn, Error, and Debug levels
-- 🔄 **Auto-Retry Logic** - Resilient message delivery with exponential backoff
-- ⚡ **Async Flushing** - Optional periodic flushing for better performance
-- 🎨 **Color-Coded Terminal** - Beautiful terminal output with color coding
-- 🐳 **Docker Support** - Automatic environment detection
-- 🛡️ **Graceful Shutdown** - Ensures all logs are sent before termination
-- 📊 **Batching** - Intelligent message chunking for Telegram's limits
+- 📱 **Telegram Integration** - Send logs directly to Telegram groups/channels
+- 🎯 **Topic-based Routing** - Separate topics for different log levels
+- 🔄 **Backward Compatible** - Add to existing projects without breaking changes
+- 📝 **MultiWriter Support** - Full `log.SetOutput(io.MultiWriter(...))` compatibility
+- ⚡ **Async/Batch Processing** - High performance with batch message sending
+- 🎨 **Colorized Terminal Output** - Different colors for different log levels
+- 🔒 **Thread-Safe** - Safe for concurrent use
+- 🔄 **Auto-retry** - Automatic retry mechanism for Telegram API failures
+- 🛡️ **Graceful Shutdown** - Proper cleanup on application exit
+- 📊 **Buffering & Chunking** - Efficient message batching and splitting
 
-## Installation
+## 📦 Installation
 
 ```bash
 go get github.com/akbarali1/logtg
 ```
 
-## Quick Start
+## ⚙️ Configuration
 
-### 1. Environment Setup
+### Environment Variables
 
-Create a `.env` file in your project root:
+Create a `.env` file or set environment variables:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
@@ -33,311 +34,379 @@ TELEGRAM_GROUP_ID=-1001234567890
 TELEGRAM_GROUP_INFO_TOPIC_ID=123
 TELEGRAM_GROUP_ERROR_TOPIC_ID=456
 TELEGRAM_GROUP_WARN_TOPIC_ID=789
-TELEGRAM_GROUP_DEBUG_TOPIC_ID=101
+TELEGRAM_GROUP_DEBUG_TOPIC_ID=012
 ```
 
-### 2. Basic Usage
+### Telegram Bot Setup
+
+1. Contact [@BotFather](https://t.me/botfather)
+2. Create a new bot with `/newbot`
+3. Get the bot token
+4. Add the bot to your group/channel and make it an admin
+5. Get the group/channel ID
+
+### Docker Support
+
+The library automatically detects Docker environment and skips `.env` file loading when running in containers.
+
+## 🚀 Usage
+
+### 1. Simple Usage (Traditional API)
 
 ```go
 package main
 
-import "github.com/akbarali1/logtg"
+import (
+	"errors"
+	"your-project/logtg"
+)
 
 func main() {
 	// Initialize logger
 	logger := logtg.InitLog()
-	defer logger.Close() // Ensure graceful shutdown
+	defer logger.Close()
 
-	// Log messages
-	logger.Info("Application started successfully")
+	// Different log levels
+	logger.Info("Application started")
 	logger.Warn("This is a warning message")
-	logger.Error("Something went wrong: %s", "error details")
-	logger.Debug("Debug information: %v", someVariable)
+	logger.Error("This is an error message")
+	logger.Debug("Debug information")
 
-	// Log with error object
-	err := someFunction()
-	if err != nil {
-		logger.ErrorWithError(err, "Failed to execute function")
-	}
+	// Console-only message (won't send to Telegram)
+	logger.OnlyInfo("This appears only in terminal")
 
-	// Manual flush (optional - auto-flush is enabled)
+	// Error with additional error object
+	err := errors.New("sample error")
+	logger.ErrorWithError(err, "An error occurred: %s", "details")
+
+	// Manual flush
 	logger.Flush()
 }
 ```
 
-## Configuration
-
-### Environment Variables
-
-| Variable                        | Required | Description                   |
-|---------------------------------|----------|-------------------------------|
-| `TELEGRAM_BOT_TOKEN`            | ✅        | Your Telegram bot token       |
-| `TELEGRAM_GROUP_ID`             | ✅        | Target group chat ID          |
-| `TELEGRAM_GROUP_INFO_TOPIC_ID`  | ✅        | Topic ID for info messages    |
-| `TELEGRAM_GROUP_ERROR_TOPIC_ID` | ✅        | Topic ID for error messages   |
-| `TELEGRAM_GROUP_WARN_TOPIC_ID`  | ❌        | Topic ID for warning messages |
-| `TELEGRAM_GROUP_DEBUG_TOPIC_ID` | ❌        | Topic ID for debug messages   |
-
-### Advanced Configuration
+### 2. MultiWriter Integration
 
 ```go
-config := logtg.TelegramConfig{
-BotToken:     "your_bot_token",
+package main
+
+import (
+	"io"
+	"log"
+	"os"
+	"your-project/logtg"
+)
+
+func main() {
+	logger := logtg.InitLog()
+	defer logger.Close()
+
+	// Setup MultiWriter (outputs to both stderr and Telegram)
+	logger.SetupMultiWriter("info", false) // autoFlush = false
+
+	// Use standard log package
+	log.Println("This goes to console and Telegram")
+	log.Printf("Formatted message: %d", 123)
+
+	// Manual flush
+	logger.Flush()
+}
+```
+
+### 3. Custom Multiple Outputs
+
+```go
+// Write to file, console, and Telegram
+logFile, _ := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+outputs := []io.Writer{os.Stdout, logFile}
+
+logger.SetupMultiWriterWithCustomOutput(outputs, "error", true) // autoFlush = true
+
+log.Println("This writes to 3 places: console, file, and Telegram")
+```
+
+### 4. Different Log Levels with Custom Loggers
+
+```go
+// Create separate loggers for different levels
+infoLogger := log.New(
+io.MultiWriter(os.Stdout, logger.GetLogBuffer("info", false)),
+"[INFO] ",
+log.LstdFlags,
+)
+
+errorLogger := log.New(
+io.MultiWriter(os.Stderr, logger.GetLogBuffer("error", true)), // Auto flush
+"[ERROR] ",
+log.LstdFlags,
+)
+
+warnLogger := log.New(
+io.MultiWriter(os.Stdout, logger.GetLogBuffer("warn", false)),
+"[WARN] ",
+log.LstdFlags,
+)
+
+infoLogger.Println("Info message")
+errorLogger.Println("Error message") // Immediately sent to Telegram
+warnLogger.Println("Warning message")
+
+// Manual flush for non-auto-flush buffers
+logger.Flush()
+```
+
+### 5. HTTP Middleware Example
+
+```go
+func LoggingMiddleware(tg *logtg.Logger) func (http.Handler) http.Handler {
+logBuffer := tg.GetLogBuffer("info", true) // Auto flush
+logger := log.New(io.MultiWriter(os.Stdout, logBuffer), "[HTTP] ", log.LstdFlags)
+
+return func (next http.Handler) http.Handler {
+return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+start := time.Now()
+next.ServeHTTP(w, r)
+duration := time.Since(start)
+
+logger.Printf("%s %s %v", r.Method, r.RequestURI, duration)
+})
+}
+}
+
+// Usage in HTTP server
+func main() {
+logger := logtg.InitLog()
+defer logger.Close()
+
+mux := http.NewServeMux()
+mux.HandleFunc("/", homeHandler)
+
+// Apply logging middleware
+handler := LoggingMiddleware(logger)(mux)
+
+http.ListenAndServe(":8080", handler)
+}
+```
+
+### 6. Structured Logging
+
+```go
+import "encoding/json"
+
+func setupStructuredLogging(tg *logtg.Logger) {
+jsonBuffer := tg.GetLogBuffer("info", false)
+
+type LogEntry struct {
+Timestamp string      `json:"timestamp"`
+Level     string      `json:"level"`
+Message   string      `json:"message"`
+Data      interface{} `json:"data,omitempty"`
+}
+
+logEntry := LogEntry{
+Timestamp: time.Now().Format(time.RFC3339),
+Level:     "INFO",
+Message:   "User login successful",
+Data: map[string]interface{}{
+"user_id": 123,
+"ip":      "192.168.1.1",
+},
+}
+
+jsonData, _ := json.Marshal(logEntry)
+jsonBuffer.Write(jsonData)
+jsonBuffer.Write([]byte("\n"))
+
+jsonBuffer.Flush()
+tg.Flush()
+}
+```
+
+### 7. Asynchronous Logging
+
+```go
+func setupAsyncLogging(tg *logtg.Logger) {
+logBuffer := tg.GetLogBuffer("info", false)
+
+// Channel for async logging
+logChan := make(chan string, 100)
+
+// Start goroutine
+go func () {
+for msg := range logChan {
+logBuffer.Write([]byte(msg + "\n"))
+}
+logBuffer.Flush()
+tg.Flush()
+}()
+
+// Send logs asynchronously
+logChan <- "Async message 1"
+logChan <- "Async message 2"
+logChan <- "Async message 3"
+
+close(logChan)
+time.Sleep(1 * time.Second) // Wait for goroutine to finish
+}
+```
+
+## 🔧 Advanced Configuration
+
+### Custom Configuration
+
+```go
+cfg := logtg.TelegramConfig{
+BotToken:     "your-bot-token",
 DefaultGroup: -1001234567890,
 GroupIDByType: map[string]int64{
 "info":  -1001234567890,
-"error": -1001234567891, // Different group for errors
+"warn":  -1001234567890,
+"error": -1002345678901, // Different group for errors
+"debug": -1001234567890,
 },
 TopicIDByType: map[string]int64{
 "info":  123,
-"error": 456,
+"warn":  456,
+"error": 789,
+"debug": 012,
 },
 EnableAsync:   true,
 FlushInterval: 10 * time.Second,
 HTTPTimeout:   15 * time.Second,
+BufferSize:    200,
 }
 
-logger := logtg.NewLogger(config)
+logger := logtg.NewLogger(cfg)
 ```
 
-## API Reference
-
-### Logging Methods
+### AutoFlush vs Manual Flush
 
 ```go
-// Standard logging methods
+// AutoFlush: Messages are sent immediately
+logger.SetupMultiWriter("error", true) // autoFlush = true
+log.Println("This is sent immediately")
+
+// Manual Flush: Messages are buffered
+logger.SetupMultiWriter("info", false) // autoFlush = false
+log.Println("This is buffered")
+log.Println("This is also buffered")
+logger.Flush() // Send all buffered messages
+```
+
+## 📊 Log Levels and Routing
+
+The library supports four log levels:
+
+- **INFO** - General information messages
+- **WARN** - Warning messages
+- **ERROR** - Error messages
+- **DEBUG** - Debug information
+
+Each level can be routed to:
+
+- Different Telegram groups
+- Different topics within the same group
+- Different local outputs (console, files, etc.)
+
+## 🎨 Terminal Output
+
+The library provides colorized terminal output:
+
+- 🟢 **INFO** - Green
+- 🟡 **WARN** - Yellow
+- 🔴 **ERROR** - Red
+- 🔵 **DEBUG** - Cyan
+
+## ⚡ Performance Features
+
+- **Batching**: Messages are grouped and sent in batches
+- **Chunking**: Long messages are automatically split
+- **Concurrent sending**: Multiple message chunks sent concurrently
+- **Connection pooling**: Reuses HTTP connections
+- **Buffer management**: Efficient memory usage with pre-allocated buffers
+
+## 🛡️ Error Handling
+
+- **Retry mechanism**: Automatic retry with exponential backoff
+- **Graceful degradation**: Continues working even if Telegram is unavailable
+- **Context cancellation**: Proper cleanup on application shutdown
+- **Rate limiting**: Prevents API rate limit violations
+
+## 📋 API Reference
+
+### Logger Methods
+
+#### Traditional API
+
+```go
 logger.Info(format string, v ...interface{})
 logger.Warn(format string, v ...interface{})
 logger.Error(format string, v ...interface{})
 logger.Debug(format string, v ...interface{})
+logger.OnlyInfo(format string, v ...interface{}) // Console only
+logger.ErrorWithError(err error, format string, v ...interface{})
+```
 
-// Special methods
-logger.OnlyInfo(format string, v ...interface{}) // Logs to terminal only
-logger.ErrorWithError(err error, format string, v ...) // Logs with error context
+#### MultiWriter API
 
-// Control methods
-logger.Flush()       // Manual flush to Telegram
+```go
+logger.SetupMultiWriter(logType string, autoFlush bool)
+logger.SetupMultiWriterWithCustomOutput(outputs []io.Writer, logType string, autoFlush bool)
+logger.GetLogBuffer(logType string, autoFlush bool) *LogBuffer
+```
+
+#### Control Methods
+
+```go
+logger.Flush() // Send all buffered messages
 logger.Close() error // Graceful shutdown
 ```
 
-### Log Levels
-
-- **Info** 🟢 - General information (green in terminal)
-- **Warn** 🟡 - Warning messages (yellow in terminal)
-- **Error** 🔴 - Error messages (red in terminal)
-- **Debug** 🔵 - Debug information (cyan in terminal)
-
-## Getting Started with Telegram Bot
-
-### 1. Create a Telegram Bot
-
-1. Message [@BotFather](https://t.me/botfather) on Telegram
-2. Send `/newbot` and follow instructions
-3. Save the bot token
-
-### 2. Setup Group and Topics
-
-1. Create a Telegram group
-2. Add your bot to the group
-3. Make the bot an admin
-4. Enable topics in group settings
-5. Create topics for different log levels
-6. Get group ID and topic IDs using [@userinfobot](https://t.me/userinfobot)
-
-### 3. Get Chat IDs
-
-Forward a message from your group to [@userinfobot](https://t.me/userinfobot) to get:
-
-- Group ID (negative number)
-- Topic IDs (positive numbers)
-
-## Performance Features
-
-### Async Flushing
+### LogBuffer Methods
 
 ```go
-// Enable automatic periodic flushing
-config.EnableAsync = true
-config.FlushInterval = 5 * time.Second
+logBuffer.Write(p []byte) (n int, err error) // io.Writer interface
+logBuffer.Flush() // Flush buffer content
 ```
 
-### Batching and Chunking
-
-- Automatically batches messages for efficiency
-- Respects Telegram's 4000 character limit
-- Intelligent message splitting
-
-### Connection Pooling
-
-- Reuses HTTP connections
-- Configurable timeouts
-- Concurrent request limiting
-
-### Retry Logic
-
-- Exponential backoff
-- Configurable retry attempts
-- Error recovery
-
-## Docker Support
-
-The library automatically detects Docker environment and skips `.env` file loading:
-
-```dockerfile
-FROM golang:alpine
-WORKDIR /app
-COPY . .
-ENV TELEGRAM_BOT_TOKEN=your_token
-ENV TELEGRAM_GROUP_ID=-1001234567890
-# ... other env vars
-RUN go build -o app
-CMD ["./app"]
-```
-
-## Examples
-
-### Web Server Logging
-
-```go
-func main() {
-logger := logtg.InitLog()
-defer logger.Close()
-
-http.HandleFunc("/", func (w http.ResponseWriter, r *http.Request) {
-logger.Info("Request: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
-// Handle request...
-})
-
-logger.Info("Server starting on :8080")
-if err := http.ListenAndServe(":8080", nil); err != nil {
-logger.ErrorWithError(err, "Server failed to start")
-}
-}
-```
-
-### Database Operations
-
-```go
-func processUser(userID int) error {
-logger := logtg.InitLog()
-
-logger.Debug("Processing user: %d", userID)
-
-user, err := db.GetUser(userID)
-if err != nil {
-logger.ErrorWithError(err, "Failed to get user %d", userID)
-return err
-}
-
-logger.Info("Successfully processed user: %s", user.Name)
-return nil
-}
-```
-
-### Background Jobs
-
-```go
-func backgroundWorker() {
-logger := logtg.InitLog()
-defer logger.Close()
-
-ticker := time.NewTicker(1 * time.Hour)
-defer ticker.Stop()
-
-for {
-select {
-case <-ticker.C:
-logger.Info("Starting hourly cleanup job")
-if err := cleanupOldData(); err != nil {
-logger.ErrorWithError(err, "Cleanup job failed")
-} else {
-logger.Info("Cleanup job completed successfully")
-}
-}
-}
-}
-```
-
-## Best Practices
-
-### 1. Use Structured Logging
-
-```go
-// Good
-logger.Info("User login: userID=%d, email=%s, ip=%s", userID, email, ip)
-
-// Avoid
-logger.Info("User " + email + " logged in from " + ip)
-```
-
-### 2. Handle Errors Properly
-
-```go
-if err != nil {
-logger.ErrorWithError(err, "Operation failed for user %d", userID)
-return err
-}
-```
-
-### 3. Use Appropriate Log Levels
-
-```go
-logger.Debug("Cache hit for key: %s", key) // Development info
-logger.Info("User registered: %s", email) // Important events
-logger.Warn("Rate limit approached: %d/100", count) // Potential issues
-logger.Error("Database connection failed") // Serious problems
-```
-
-### 4. Graceful Shutdown
-
-```go
-func main() {
-logger := logtg.InitLog()
-defer logger.Close() // Always ensure graceful shutdown
-
-// Your application code...
-}
-```
-
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **Bot not receiving messages**
-    - Ensure bot is added to the group
-    - Verify bot has admin permissions
-    - Check group ID is negative number
+1. **Bot token not working**
+    - Verify the token with [@BotFather](https://t.me/botfather)
+    - Check environment variables
 
-2. **Topic messages not working**
-    - Ensure topics are enabled in group
-    - Verify topic IDs are correct
-    - Check bot has permission to post in topics
+2. **Messages not appearing in Telegram**
+    - Ensure bot is added to the group/channel
+    - Verify bot has admin privileges
+    - Check group/topic IDs
 
-3. **Rate limiting**
-    - Telegram has rate limits (30 messages/second)
-    - Use async flushing to batch messages
-    - Consider increasing flush interval
+3. **Performance issues**
+    - Enable async mode: `EnableAsync: true`
+    - Increase flush interval
+    - Use autoFlush sparingly
 
-### Debug Mode
+4. **Memory usage**
+    - Adjust buffer size in config
+    - Call `Flush()` regularly
+    - Monitor buffer growth
 
-```go
-// Enable debug logging to see internal operations
-logger.Debug("Debug mode enabled")
-```
+## 📄 License
 
-## Contributing
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## License
+## 📞 Support
 
-MIT License - see [LICENSE](LICENSE) file for details.
+If you have any questions or issues, please open an issue on GitHub or contact the maintainers.
 
-## Support
+---
 
-- 📧 Email: logtg@akbarali.uz
-- 🐛 Issues: [GitHub Issues](https://github.com/akbarali1/logtg/issues)
+**Happy Logging! 🚀**

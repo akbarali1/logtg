@@ -44,6 +44,7 @@ type TelegramConfig struct {
 	EnableAsync   bool // Async flush uchun
 	FlushInterval time.Duration
 	HTTPTimeout   time.Duration
+	BufferSize    int // Buffer o'lchami
 }
 
 type Logger struct {
@@ -55,6 +56,94 @@ type Logger struct {
 	flushTimer *time.Timer
 	httpClient *http.Client
 	wg         sync.WaitGroup
+}
+
+// LogBuffer - io.Writer interfaceini implement qiladi
+type LogBuffer struct {
+	logger    *Logger
+	logType   string
+	buffer    *bytes.Buffer
+	mu        sync.Mutex
+	autoFlush bool
+}
+
+// Write - io.Writer interface methodi
+func (lb *LogBuffer) Write(p []byte) (n int, err error) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	// Bufferga yozish
+	n, err = lb.buffer.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	// Agar satr tugagan bo'lsa (newline bor), processlash
+	if bytes.Contains(p, []byte("\n")) {
+		lb.processBuffer()
+	}
+
+	return n, nil
+}
+
+// processBuffer - bufferdan satrlarni o'qib, telegram loggeriga yuboradi
+func (lb *LogBuffer) processBuffer() {
+	content := lb.buffer.String()
+	if content == "" {
+		return
+	}
+
+	lines := strings.Split(content, "\n")
+	lb.buffer.Reset()
+
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			// Timestamp qo'shish
+			timestamp := time.Now().Format("15:04:05 02.01.2006")
+			fullMsg := fmt.Sprintf("%s [%s] %s", timestamp, strings.ToUpper(lb.logType), trimmed)
+
+			// Terminal output
+			lb.printToTerminal(fullMsg)
+
+			// Telegram bufferiga qo'shish
+			lb.logger.mu.Lock()
+			if lb.logger.buffers[lb.logType] == nil {
+				lb.logger.buffers[lb.logType] = make([]string, 0, lb.logger.telegram.BufferSize)
+			}
+			lb.logger.buffers[lb.logType] = append(lb.logger.buffers[lb.logType], fullMsg)
+			lb.logger.mu.Unlock()
+
+			// Auto flush
+			if lb.autoFlush {
+				go lb.logger.Flush()
+			}
+		}
+	}
+}
+
+// printToTerminal - terminalga rangli output beradi
+func (lb *LogBuffer) printToTerminal(msg string) {
+	switch lb.logType {
+	case "info":
+		fmt.Printf("\033[32m%s\033[0m\n", msg)
+	case "warn":
+		fmt.Printf("\033[33m%s\033[0m\n", msg)
+	case "error":
+		fmt.Printf("\033[31m%s\033[0m\n", msg)
+	case "debug":
+		fmt.Printf("\033[36m%s\033[0m\n", msg)
+	default:
+		fmt.Println(msg)
+	}
+}
+
+// Flush - LogBuffer bufferini tozalaydi
+func (lb *LogBuffer) Flush() {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	if lb.buffer.Len() > 0 {
+		lb.processBuffer()
+	}
 }
 
 func IsRunningInDocker() bool {
@@ -131,6 +220,7 @@ func InitLog() *Logger {
 		EnableAsync:   true,
 		FlushInterval: flushInterval,
 		HTTPTimeout:   10 * time.Second,
+		BufferSize:    100,
 	})
 }
 
@@ -142,6 +232,9 @@ func NewLogger(cfg TelegramConfig) *Logger {
 	}
 	if cfg.HTTPTimeout == 0 {
 		cfg.HTTPTimeout = 10 * time.Second
+	}
+	if cfg.BufferSize == 0 {
+		cfg.BufferSize = 100
 	}
 
 	l := &Logger{
@@ -163,6 +256,31 @@ func NewLogger(cfg TelegramConfig) *Logger {
 	}
 
 	return l
+}
+
+// GetLogBuffer - ma'lum log type uchun LogBuffer qaytaradi
+func (l *Logger) GetLogBuffer(logType string, autoFlush bool) *LogBuffer {
+	return &LogBuffer{
+		logger:    l,
+		logType:   logType,
+		buffer:    &bytes.Buffer{},
+		autoFlush: autoFlush,
+	}
+}
+
+// SetupMultiWriter - standard log package uchun MultiWriter sozlaydi
+func (l *Logger) SetupMultiWriter(logType string, autoFlush bool) {
+	logBuffer := l.GetLogBuffer(logType, autoFlush)
+	multiWriter := io.MultiWriter(os.Stderr, logBuffer)
+	log.SetOutput(multiWriter)
+}
+
+// SetupMultiWriterWithCustomOutput - custom output bilan MultiWriter sozlaydi
+func (l *Logger) SetupMultiWriterWithCustomOutput(outputs []io.Writer, logType string, autoFlush bool) {
+	logBuffer := l.GetLogBuffer(logType, autoFlush)
+	outputs = append(outputs, logBuffer)
+	multiWriter := io.MultiWriter(outputs...)
+	log.SetOutput(multiWriter)
 }
 
 func (l *Logger) handleShutdown() {
@@ -223,7 +341,7 @@ func (l *Logger) log(logType, format string, v ...interface{}) {
 	// Buffer with read-write lock
 	l.mu.Lock()
 	if l.buffers[logType] == nil {
-		l.buffers[logType] = make([]string, 0, 100) // Pre-allocate capacity
+		l.buffers[logType] = make([]string, 0, l.telegram.BufferSize)
 	}
 	l.buffers[logType] = append(l.buffers[logType], fullMsg)
 	l.mu.Unlock()
@@ -241,7 +359,7 @@ func (l *Logger) ErrorWithError(err error, format string, v ...interface{}) {
 
 	l.mu.Lock()
 	if l.buffers["error"] == nil {
-		l.buffers["error"] = make([]string, 0, 100)
+		l.buffers["error"] = make([]string, 0, l.telegram.BufferSize)
 	}
 	l.buffers["error"] = append(l.buffers["error"], finalMsg)
 	l.mu.Unlock()
