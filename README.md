@@ -18,7 +18,7 @@ monitoring applications, debugging, and receiving real-time notifications.
 ## Installation
 
 ```bash
-go get github.com/your-username/logtg
+go get github.com/akbarali1/logtg
 ```
 
 ## Quick Start
@@ -41,7 +41,7 @@ TELEGRAM_GROUP_DEBUG_TOPIC_ID=101
 ```go
 package main
 
-import "github.com/your-username/logtg"
+import "github.com/akbarali1/logtg"
 
 func main() {
 	// Initialize logger
