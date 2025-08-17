@@ -56,6 +56,7 @@ type Logger struct {
 	flushTimer *time.Timer
 	httpClient *http.Client
 	wg         sync.WaitGroup
+	logPrint   bool
 }
 
 // LogBuffer - io.Writer interfaceini implement qiladi
@@ -65,6 +66,11 @@ type LogBuffer struct {
 	buffer    *bytes.Buffer
 	mu        sync.Mutex
 	autoFlush bool
+}
+
+func (l *Logger) NoLogPrint(typeLog bool) *Logger {
+	l.logPrint = typeLog
+	return l
 }
 
 // Write - io.Writer interface methodi
@@ -103,7 +109,9 @@ func (lb *LogBuffer) processBuffer() {
 			fullMsg := fmt.Sprintf("%s [%s] %s", timestamp, strings.ToUpper(lb.logType), trimmed)
 
 			// Terminal output
-			lb.printToTerminal(fullMsg)
+			if lb.logger.logPrint {
+				lb.printToTerminal(fullMsg)
+			}
 
 			// Telegram bufferiga qo'shish
 			lb.logger.mu.Lock()
@@ -245,6 +253,7 @@ func NewLogger(cfg TelegramConfig) *Logger {
 		httpClient: &http.Client{
 			Timeout: cfg.HTTPTimeout,
 		},
+		logPrint: true,
 	}
 
 	// Graceful shutdown
